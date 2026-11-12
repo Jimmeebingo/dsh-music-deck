@@ -2,5 +2,8 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+# npm pack cache created while checking the published file list
+.npm-cache/
+*.tgz
 # The cover reader is compiled at runtime into %TEMP%, never committed.
 MDCover.dll

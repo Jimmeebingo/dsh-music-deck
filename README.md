@@ -19,39 +19,35 @@ DSH（DeepSeek Harness）的悬浮音乐播放器。它不接任何音乐服务�
 - 右下角常驻圆形封面 + 播放/暂停的胶囊，点开是完整卡片。
 - 显示正在播放的曲目：封面、歌名、歌手、专辑、进度（App 提供时间轴时）。
 - 控制：上一首 / 播放暂停 / 下一首，进度条可点击跳转。
-- 调整当前来源应用的音量，或切换静音。
 - 多个播放器同时开着时，点来源标签切换控制对象。
 - 在卡片内切到另一个来源并开始播放时，会先暂停正在播放的那个客户端。
 - 卡片可拖动，吸附在左右两侧；窗口化时自动切换成不带歌名的紧凑布局。
-- 位置、展开状态与界面设置存在浏览器 localStorage，重启后保留。
+- 位置、展开状态存在浏览器 localStorage，重启后保留。
 
 ## 系统要求
 
-- 运行 DSH 宿主的电脑使用 Windows 10 / 11
-- DSH（DeepSeek Harness）桌面版或 Web 版
-- 插件本身不需要额外账号、API key 或付费订阅；音乐客户端仍按各自的使用要求运行
+- Windows 10 / 11
+- [DSH](https://github.com/deepseek-ai) 桌面版或 Web 版
+- 不需要任何账号、API key 或付费订阅
 
 在非 Windows 平台上插件会安静地停在未激活状态，不会报错。
 
 ## 安装
 
-**从本仓库安装**（推荐，等价于插件市场的 git 来源）：
+在 DSH 里 **设置 → 插件 → 安装 bundle**，输入包名：
 
-在本页选择 **Code → Download ZIP**，解压后选择包含 `package.json`、`index.js` 和 `client.js` 的文件夹：
-
-```text
-DSH → 设置 → 插件 → 安装 bundle → 选择本目录
 ```
-
-这是 DSH 插件包，直接使用源码目录，无需构建或安装单独的 `.exe` / `.msi`。目前仅支持 Windows 宿主；macOS / Linux 的媒体控制需要另行实现和验证。
-
-**从插件市场安装**：把索引地址添加到 Discover 后搜索「音乐台」。
-
-```text
-https://raw.githubusercontent.com/Jimmeebingo/dsh-music-deck/main/market/index.json
+dsh-music-deck
 ```
 
 安装后刷新页面，右下角出现播放器。
+
+其他两种方式：
+
+- **从插件市场**：把 `market/index.json` 的 raw 地址添加到 Discover 后搜索「音乐台」。
+- **从源码**：克隆本仓库，把安装目标指向仓库目录。
+
+> 包名安装不需要本机安装 Git。
 
 ## 使用
 
@@ -137,9 +133,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File agent\sessions.ps1
 
 ## 隐私
 
-- 不向外部服务发送请求：前端只访问 DSH 宿主提供的 `/music-deck/` 路由。曲目信息只在内存与宿主的 `%TEMP%\dsh-music-deck-<pid>` 中，进程退出即删除。使用 Web 版时，浏览器与宿主之间会传输这些数据。
+- 不联网：插件本身不发任何网络请求。曲目信息只在内存与 `%TEMP%\dsh-music-deck-<pid>` 中，进程退出即删除。
 - 不收集数据、不含遥测。
-- 浏览器 localStorage 仅保存位置、展开状态与界面设置。
+- 唯一持久化的是浏览器 localStorage 里的位置与展开状态。
 
 ## 许可
 
