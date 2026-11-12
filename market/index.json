@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Music deck",
+    "zh": "音乐台"
+  },
+  "plugins": [
+    {
+      "name": "dsh-music-deck",
+      "title": {
+        "en": "Music deck",
+        "zh": "音乐台"
+      },
+      "description": {
+        "en": "Floating player that reads and controls the system media session of QQ Music, NetEase Cloud Music and Spotify.",
+        "zh": "悬浮播放器，读取 QQ音乐、网易云音乐、Spotify 的系统媒体会话。"
+      },
+      "icon": "https://raw.githubusercontent.com/Jimmeebingo/dsh-music-deck/main/icon.svg",
+      "homepage": "https://github.com/Jimmeebingo/dsh-music-deck#readme",
+      "repository": {
+        "url": "https://github.com/Jimmeebingo/dsh-music-deck"
+      },
+      "metadata": {
+        "keywords": [
+          "cordis",
+          "music",
+          "now-playing",
+          "smtc",
+          "windows"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1794479049,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/Jimmeebingo/dsh-music-deck",
+            "commit": "c61051dde12ffc2688c5b1117b592d685765fd93"
+          }
+        }
+      ]
+    }
+  ]
+}
