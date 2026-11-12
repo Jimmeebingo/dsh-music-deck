@@ -1,0 +1,6 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+# The cover reader is compiled at runtime into %TEMP%, never committed.
+MDCover.dll
