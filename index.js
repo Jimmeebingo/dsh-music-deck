@@ -79,10 +79,14 @@ export function apply(ctx) {
     return
   }
 
-  const workDir = path.join(os.tmpdir(), `dsh-music-deck-${process.pid}`)
+  const temporaryRoot = os.tmpdir()
+  fs.mkdirSync(temporaryRoot, { recursive: true })
+  const workDir = fs.mkdtempSync(path.join(temporaryRoot, `dsh-music-deck-${process.pid}-`))
   const stateFile = path.join(workDir, 'state.json')
   const cmdDir = path.join(workDir, 'cmd')
   const aliveFile = path.join(workDir, 'alive')
+  const windowsBuild = Number(os.release().split('.')[2])
+  const unsupportedWindows = Number.isFinite(windowsBuild) && windowsBuild < 17763
 
   let child = null
   let disposed = false
@@ -93,6 +97,9 @@ export function apply(ctx) {
   let lastCommand = null
 
   function readState() {
+    if (unsupportedWindows) {
+      return { ok: false, reason: 'unsupported-windows-version', agent: 'unsupported', build: windowsBuild, requiredBuild: 17763 }
+    }
     let payload
     try {
       payload = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
@@ -111,13 +118,25 @@ export function apply(ctx) {
     return { ...payload, agent: live ? 'live' : 'stale', failure: lastFailure || undefined }
   }
 
+  function powershellPath() {
+    // PATH is not guaranteed to contain the system directory in every profile.
+    const root = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows'
+    const full = path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    try {
+      if (fs.existsSync(full)) return full
+    } catch {
+      /* fall through */
+    }
+    return 'powershell.exe'
+  }
+
   function startAgent() {
-    if (disposed) return
+    if (disposed || unsupportedWindows) return
     lastFailure = ''
     fs.mkdirSync(workDir, { recursive: true })
 
     child = spawn(
-      'powershell.exe',
+      powershellPath(),
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', AGENT_SCRIPT, '-Dir', workDir],
       { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] },
     )
@@ -144,19 +163,37 @@ export function apply(ctx) {
     })
   }
 
-  function stopAgent() {
+  function stopAgent(afterStop) {
     if (restartTimer !== null) {
       clearTimeout(restartTimer)
       restartTimer = null
     }
     const current = child
     child = null
-    if (current && current.exitCode === null) {
-      try {
-        spawn('taskkill', ['/pid', String(current.pid), '/T', '/F'], { windowsHide: true }).on('error', () => {})
-      } catch {
-        current.kill()
+    let cleaned = false
+    const finished = () => {
+      if (cleaned) return
+      cleaned = true
+      afterStop?.()
+    }
+    if (!current || current.exitCode !== null || !Number.isInteger(current.pid)) {
+      finished()
+      return
+    }
+    current.once('exit', finished)
+    current.once('close', finished)
+    const fallback = () => {
+      try { current.kill() } catch (error) {
+        ctx.logger?.warn?.(`music-deck: cannot stop media agent: ${error.message}`)
       }
+    }
+    try {
+      const root = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows'
+      const killer = spawn(path.join(root, 'System32', 'taskkill.exe'), ['/pid', String(current.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+      killer.once('error', fallback)
+      killer.once('exit', (code) => { if (code !== 0) fallback() })
+    } catch {
+      fallback()
     }
   }
 
@@ -164,12 +201,13 @@ export function apply(ctx) {
     startAgent()
     return () => {
       disposed = true
-      stopAgent()
-      try {
-        fs.rmSync(workDir, { recursive: true, force: true })
-      } catch {
-        /* best effort */
-      }
+      stopAgent(() => {
+        try {
+          fs.rmSync(workDir, { recursive: true, force: true })
+        } catch {
+          /* best effort */
+        }
+      })
     }
   }, 'music-deck: media agent')
 
@@ -246,11 +284,31 @@ export function apply(ctx) {
             response.end()
             return
           }
+          const origin = request.headers?.origin
+          if (origin) {
+            let sameOrigin = false
+            try {
+              const url = new URL(origin)
+              sameOrigin = (url.protocol === 'http:' || url.protocol === 'https:') && url.host.toLowerCase() === String(request.headers.host || '').toLowerCase()
+            } catch { /* invalid or opaque origin */ }
+            if (!sameOrigin) {
+              sendJson(response, 403, { ok: false, error: 'cross-origin commands are not allowed' })
+              return
+            }
+          }
+          if (String(request.headers?.['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json') {
+            sendJson(response, 415, { ok: false, error: 'commands require application/json' })
+            return
+          }
           let body
           try {
             body = await readJsonBody(request)
           } catch (error) {
             sendJson(response, 400, { ok: false, error: error.message })
+            return
+          }
+          if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+            sendJson(response, 400, { ok: false, error: 'command body must be an object' })
             return
           }
 
@@ -287,11 +345,7 @@ export function apply(ctx) {
           }
           if (typeof body.exclusive === 'boolean') command.exclusive = body.exclusive
           if (action === 'dump') {
-            if (typeof body.path !== 'string' || !body.path) {
-              sendJson(response, 400, { ok: false, error: 'dump needs a target path' })
-              return
-            }
-            command.path = body.path
+            command.path = path.join(workDir, 'audio-sessions.txt')
           }
 
           try {

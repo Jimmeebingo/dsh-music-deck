@@ -14,16 +14,19 @@ $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-O
   $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
 })[0]
 
-function Await($op, $resultType) {
+function Await($op, $resultType, [int]$TimeoutMs = 2000) {
   $asTask = $script:asTaskGeneric.MakeGenericMethod($resultType)
   $task = $asTask.Invoke($null, @($op))
-  $task.Wait(-1) | Out-Null
+  if (-not $task.Wait($TimeoutMs)) {
+    try { $op.Cancel() } catch { }
+    throw [System.TimeoutException]::new('Windows media operation timed out')
+  }
   $task.Result
 }
 
 [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
 
-$manager = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+$manager = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]) 10000
 $sessions = @($manager.GetSessions())
 
 Write-Output ("sessions: " + $sessions.Count)

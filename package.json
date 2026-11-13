@@ -1,7 +1,15 @@
 {
   "name": "dsh-music-deck",
-  "version": "1.0.0",
-  "description": "Floating player that reads and controls the system media session of QQ Music, NetEase Cloud Music and Spotify.",
+  "version": "1.0.1",
+  "description": "Floating music controls for players that publish Windows system media sessions.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jimmeebingo/dsh-music-deck.git"
+  },
+  "homepage": "https://github.com/Jimmeebingo/dsh-music-deck#readme",
+  "bugs": {
+    "url": "https://github.com/Jimmeebingo/dsh-music-deck/issues"
+  },
   "type": "module",
   "keywords": [
     "dsh",
@@ -13,6 +21,9 @@
     "windows"
   ],
   "license": "MIT",
+  "scripts": {
+    "test": "node test/run-tests.mjs"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

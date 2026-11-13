@@ -1,28 +1,26 @@
 # 插件市场索引
 
-DSH 的插件市场**没有"提交审核"入口**：它读取的是**用户自己配置的索引 URL**，每个索引就是一份 JSON。所以"上架"= 把包发出去，再提供一份索引文件让别人添加。
+本目录提供两种独立材料：用户可自行添加的 DSH format 1 索引，以及向 awesome-dsh-plugin 社区列表投稿的 YAML。前者不代表已经通过社区收录；社区投稿步骤见 [SUBMISSION.md](SUBMISSION.md)。
 
 | 文件 | 作用 |
 |---|---|
 | `build-index.mjs` | 从 `package.json` 和当前 git 提交生成 `index.json`，仓库地址取自 `git remote get-url origin` |
 
-`index.json` **不随仓库提供** —— 它必须指向一个真实存在的 commit，只能在你推送之后生成。
+`index.json` 随仓库提供。Git 来源必须钉住真实存在、包含当前插件代码的 commit；npm 来源必须对应已经发布的版本。
 
 ## 发布步骤
 
-包发布在 npm 上，索引只是让 Discover 能搜到它。发版顺序：
+当前 GitHub 代码为 1.0.1，npm 为 1.0.0，因此当前索引使用 Git 来源。先提交代码，再从该提交生成索引：
 
 ```bash
-# 1. 改 package.json 的 version，提交推送
-npm publish                      # 发布新版本
-node market/build-index.mjs      # 生成 market/index.json（source 为 npm）
+# 先提交插件代码，并确保该提交会推送到仓库
+node market/build-index.mjs --git # 生成 market/index.json，钉住当前 HEAD
 git add market/index.json
 git commit -m "chore: market index"
 git push
 ```
 
-`build-index.mjs` 默认写 `{ "type": "npm" }`，安装走 `dsh-music-deck@<version>`，**用户机器不需要 Git**。
-加 `--git` 参数可以改成钉 commit 的 git 来源（需要用户装了 Git）。
+Git 来源要求 DSH 宿主可用的 Git。将来发布 npm 新版本并验证可下载后，才可以运行默认的 `node market/build-index.mjs` 改用 `{ "type": "npm" }`，安装走 `dsh-music-deck@<version>`，用户机器不需要 Git。不要用默认模式为尚未发布的 npm 版本生成索引。
 
 ```json
 {
@@ -32,12 +30,12 @@ git push
     {
       "name": "dsh-music-deck",
       "title": { "en": "Music deck", "zh": "音乐台" },
-      "icon": "https://raw.githubusercontent.com/<owner>/<repo>/main/icon.svg",
+      "icon": "https://raw.githubusercontent.com/Jimmeebingo/dsh-music-deck/main/assets/icon-180.png",
       "repository": { "url": "https://github.com/<owner>/<repo>" },
       "metadata": { "keywords": ["music", "now-playing", "smtc", "windows"] },
       "versions": [
         {
-          "version": "1.0.0",
+          "version": "1.0.1",
           "publishTimestamp": 1794000000,
           "source": {
             "type": "git",
@@ -56,7 +54,7 @@ git push
 DSH → **设置 → Discover / 插件市场 → 添加索引**，填：
 
 ```
-https://raw.githubusercontent.com/<owner>/<repo>/main/market/index.json
+https://raw.githubusercontent.com/Jimmeebingo/dsh-music-deck/main/market/index.json
 ```
 
 填完就能搜到「音乐台」并一键安装。如果没有 Discover 页面，也可以直接照 README 的"从源码安装"手动指向仓库目录。
@@ -76,4 +74,4 @@ https://raw.githubusercontent.com/<owner>/<repo>/main/market/index.json
 
 ## 版本更新时
 
-改 `package.json` 的 `version`，提交推送，再跑一次 `node market/build-index.mjs` 并提交索引 —— 旧版本的安装记录会被识别为「有更新」。
+改 `package.json` 的 `version`，提交代码，选择已发布的 npm 版本或已提交的 Git 代码作为来源，再生成并提交索引。索引里的包名必须与 `package.json` 一致。

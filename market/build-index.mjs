@@ -49,9 +49,9 @@ const index = {
       title: { en: 'Music deck', zh: '音乐台' },
       description: {
         en: pkg.description,
-        zh: '悬浮播放器，读取 QQ音乐、网易云音乐、Spotify 的系统媒体会话。',
+        zh: '悬浮音乐控制卡片，读取并控制支持 Windows 系统媒体会话的播放器。',
       },
-      icon: `https://raw.githubusercontent.com/${slug}/main/icon.svg`,
+      icon: `https://raw.githubusercontent.com/${slug}/main/assets/icon-180.png`,
       homepage: `${url}#readme`,
       repository: { url },
       metadata: {

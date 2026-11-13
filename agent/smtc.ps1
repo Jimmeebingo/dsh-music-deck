@@ -20,16 +20,19 @@ $script:asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | 
   $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
 })[0]
 
-function Await($op, $resultType) {
+function Await($op, $resultType, [int]$TimeoutMs = 2000) {
   $asTask = $script:asTaskGeneric.MakeGenericMethod($resultType)
   $task = $asTask.Invoke($null, @($op))
-  $task.Wait(-1) | Out-Null
+  if (-not $task.Wait($TimeoutMs)) {
+    try { $op.Cancel() } catch { }
+    throw [System.TimeoutException]::new('Windows media operation timed out')
+  }
   $task.Result
 }
 
 [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
 
-$mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+$mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]) 10000
 
 function Initialize-CoverReader {
   # PowerShell cannot project the WinRT stream interfaces, so the album art is
@@ -38,10 +41,15 @@ function Initialize-CoverReader {
     $source = Join-Path $PSScriptRoot 'Cover.cs'
     if (-not (Test-Path $source)) { return $null }
 
-    $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    # Either bitness of the .NET Framework compiler, so a 32-bit-only machine
+    # still gets artwork instead of silently losing it.
+    $csc = @(
+      (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+      (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')
+    ) | Where-Object { Test-Path $_ } | Select-Object -First 1
     $metadata = Join-Path $env:WINDIR 'System32\WinMetadata'
-    $runtime = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\System.Runtime.dll'
-    if (-not (Test-Path $csc) -or -not (Test-Path $metadata) -or -not (Test-Path $runtime)) { return $null }
+    $runtime = if ($csc) { Join-Path (Split-Path $csc) 'System.Runtime.dll' } else { '' }
+    if (-not $csc -or -not (Test-Path $metadata) -or -not (Test-Path $runtime)) { return $null }
 
     $dll = Join-Path $Dir 'MDCover.dll'
     $rebuild = $true
@@ -101,11 +109,25 @@ function Get-State {
     try { $props = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties]) } catch { }
 
     $status = ''
+    $mediaType = 'unknown'
+    $controls = $null
     $pos = 0
     $dur = 0
     try {
       $info = $s.GetPlaybackInfo()
-      if ($info) { $status = [string]$info.PlaybackStatus }
+      if ($info) {
+        $status = [string]$info.PlaybackStatus
+        if ($null -ne $info.PlaybackType) { $mediaType = ([string]$info.PlaybackType).ToLowerInvariant() }
+        if ($info.Controls) {
+          $controls = [pscustomobject]@{
+            play = [bool]$info.Controls.IsPlayEnabled
+            pause = [bool]$info.Controls.IsPauseEnabled
+            next = [bool]$info.Controls.IsNextEnabled
+            prev = [bool]$info.Controls.IsPreviousEnabled
+            seek = [bool]$info.Controls.IsPlaybackPositionEnabled
+          }
+        }
+      }
     } catch { }
     try {
       $tl = $s.GetTimelineProperties()
@@ -117,14 +139,21 @@ function Get-State {
 
     $appVolume = -1
     $appMuted = -1
+    $appProcess = ''
     if ($volumeReady) {
       try { $appVolume = [MDVolume]::GetLevel([string]$s.SourceAppUserModelId) } catch { $appVolume = -1 }
       try { $appMuted = [MDVolume]::GetMuted([string]$s.SourceAppUserModelId) } catch { $appMuted = -1 }
+      # The audio session's process name catches apps whose media id we cannot
+      # read (the client can still label and match them).
+      try { $appProcess = [string][MDVolume]::MatchProcess([string]$s.SourceAppUserModelId) } catch { $appProcess = '' }
     }
 
     $rows += [pscustomobject]@{
       id        = [string]$s.SourceAppUserModelId
+      process   = $appProcess
       status    = $status.ToLowerInvariant()
+      mediaType = $mediaType
+      controls  = $controls
       title     = if ($props) { [string]$props.Title } else { '' }
       artist    = if ($props) { [string]$props.Artist } else { '' }
       album     = if ($props) { [string]$props.AlbumTitle } else { '' }
@@ -181,6 +210,11 @@ function Get-State {
     shown    = if ($shown) { $shown.id } else { $null }
     volume   = $volume
     muted    = $muted
+    # What this machine could initialise, so a report shows missing pieces.
+    caps     = [pscustomobject]@{
+      cover  = ($null -ne $coverReader)
+      volume = $volumeReady
+    }
   }
 }
 
@@ -203,7 +237,7 @@ function Invoke-Ctl($cmd) {
 
   # Diagnostic: dump the audio sessions this process can see.
   if ($action -eq 'dump') {
-    $target = [string]$cmd.path
+    $target = Join-Path $Dir 'audio-sessions.txt'
     if ($target -and $volumeReady) {
       try { [System.IO.File]::WriteAllText($target, [MDVolume]::Dump(), (New-Object System.Text.UTF8Encoding($false))) } catch { }
     }
@@ -238,7 +272,10 @@ function Invoke-Ctl($cmd) {
   $wanted = [string]$cmd.app
   $sessions = @($mgr.GetSessions())
   $target = $null
-  if ($wanted) { $target = $sessions | Where-Object { $_.SourceAppUserModelId -eq $wanted } | Select-Object -First 1 }
+  if ($wanted) {
+    $target = $sessions | Where-Object { $_.SourceAppUserModelId -eq $wanted } | Select-Object -First 1
+    if (-not $target) { return }
+  }
   if (-not $target) { $target = $mgr.GetCurrentSession() }
   if (-not $target) { return }
 
@@ -295,14 +332,15 @@ while ($true) {
       $state = Get-State
       $body = $state | ConvertTo-Json -Depth 6 -Compress
       if ($body -ne $last) {
-        $last = $body
         $tmp = "$stateFile.tmp"
         [System.IO.File]::WriteAllText($tmp, $body, $utf8)
         Move-Item $tmp $stateFile -Force
+        $last = $body
       }
       [System.IO.File]::WriteAllText($alive, [string][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(), $utf8)
     }
   } catch {
+    $last = ''
     $err = [pscustomobject]@{ ok = $false; error = [string]$_.Exception.Message } | ConvertTo-Json -Compress
     try { [System.IO.File]::WriteAllText($stateFile, $err, $utf8) } catch { }
   }

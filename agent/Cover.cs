@@ -69,6 +69,7 @@ public static class MDCover
                     break;
                 }
             }
+            if (session == null) return null;
         }
         if (session == null) session = manager.GetCurrentSession();
         if (session == null) return null;

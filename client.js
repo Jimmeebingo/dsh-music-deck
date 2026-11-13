@@ -51,6 +51,8 @@ window.__ModuleLoader__.load({
 .mdk-pop-title{display:flex;justify-content:space-between;gap:10px;margin-bottom:6px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
 .mdk-pop-empty{padding:2px 0 4px;font-size:11.5px;color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))}
 .mdk-set-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:5px 0;font-size:11.5px;color:var(--dsw-alias-label-primary);user-select:none}
+.mdk-set-button{display:flex;align-items:center;width:100%;margin-top:2px;padding:5px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;text-align:left;cursor:pointer}
+.mdk-set-button:hover{color:var(--dsw-alias-label-primary)}
 .mdk-switch{position:relative;flex:none;width:28px;height:16px;border:0;padding:0;border-radius:8px;background:var(--dsw-alias-bg-layer-2);cursor:pointer;transition:background .15s ease}
 .mdk-switch[aria-checked="true"]{background:var(--dsw-alias-brand-primary)}
 .mdk-switch-thumb{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;transition:left .15s ease}
@@ -86,12 +88,60 @@ window.__ModuleLoader__.load({
       other: { label: '播放器', color: '#7a7f8a', badge: '♪' },
     }
 
-    function serviceOf(id) {
-      const text = String(id || '').toLowerCase()
+    function serviceOf(id, process) {
+      const text = `${id || ''} ${process || ''}`.toLowerCase()
       if (text.indexOf('qqmusic') >= 0) return 'qq'
       if (text.indexOf('cloudmusic') >= 0 || text.indexOf('netease') >= 0) return 'netease'
       if (text.indexOf('spotify') >= 0) return 'spotify'
       return 'other'
+    }
+
+    // A readable name for a player we do not know, so an unfamiliar app still
+    // shows up as something in the source switcher instead of "播放器".
+    function appName(id) {
+      const text = String(id || '').trim()
+      if (!text) return ''
+      const tail = text.includes('!') ? text.slice(text.lastIndexOf('!') + 1) : text
+      const base = tail.replace(/\.exe$/i, '')
+      const segments = base.split('.').filter(Boolean)
+      const last = segments[segments.length - 1] || base
+      return last
+        .replace(/[_-]+/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .trim()
+        .slice(0, 20)
+    }
+
+    function isKnownService(session) {
+      return serviceOf(session && session.id, session && session.process) !== 'other'
+    }
+
+    // With several apps publishing a session (a browser tab, a short-video app,
+    // a music player) the choice must be predictable: the source the user last
+    // chose, then whatever is actually sounding among the players we know.
+    function pickSession(sessions, pickedId) {
+      if (!sessions.length) return null
+      const chosen = pickedId ? sessions.find((session) => session.id === pickedId) : null
+      if (chosen) return chosen
+      const playing = (session) => session.status === 'playing'
+      const declaredMusic = (session) => session.mediaType === 'music'
+      const music = (session) => isKnownService(session) || session.mediaType === 'music'
+      return (
+        sessions.find((session) => declaredMusic(session) && session.isCurrent && playing(session)) ||
+        sessions.find((session) => declaredMusic(session) && playing(session)) ||
+        sessions.find((session) => music(session) && session.isCurrent && playing(session)) ||
+        sessions.find((session) => music(session) && playing(session)) ||
+        sessions.find((session) => session.isCurrent && playing(session)) ||
+        sessions.find(playing) ||
+        sessions.find((session) => music(session) && session.isCurrent) ||
+        sessions.find((session) => session.isCurrent) ||
+        sessions.find(music) ||
+        sessions[0]
+      )
+    }
+
+    function canControl(session, action) {
+      return Boolean(session) && (!session.controls || session.controls[action] !== false)
     }
 
     function hueOf(text) {
@@ -423,6 +473,14 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function SettingButton(props) {
+      return h(
+        'button',
+        { className: 'mdk-set-button', type: 'button', onClick: props.onClick },
+        props.label,
+      )
+    }
+
     function VolumeSlider(props) {
       const trackRef = React.useRef(null)
       const [dragging, setDragging] = React.useState(false)
@@ -496,7 +554,13 @@ window.__ModuleLoader__.load({
           return true
         }
       })
-      const [picked, setPicked] = React.useState(null)
+      const [picked, setPicked] = React.useState(() => {
+        try {
+          return localStorage.getItem('music-deck.source') || null
+        } catch {
+          return null
+        }
+      })
       const [placement, setPlacement] = React.useState(() => readPlacement())
       const [viewport, setViewport] = React.useState(() => ({
         width: window.innerWidth,
@@ -709,19 +773,16 @@ window.__ModuleLoader__.load({
       }, [props.locale])
 
       const sessions = (snapshot && Array.isArray(snapshot.sessions)) ? snapshot.sessions : []
-      const active =
-        (picked ? sessions.find((session) => session.id === picked) : null) ||
-        // Prefer the app that is actually sounding: Windows' "current" session
-        // can stay on a paused player, which would point the volume at the
-        // wrong app.
-        sessions.find((session) => session.isCurrent && session.status === 'playing') ||
-        sessions.find((session) => session.status === 'playing') ||
-        sessions.find((session) => session.isCurrent) ||
-        sessions[0] ||
-        null
+      const active = pickSession(sessions, picked)
 
-      const service = serviceOf(active && active.id)
-      const meta = SERVICES[service] || SERVICES.other
+      const service = serviceOf(active && active.id, active && active.process)
+      const meta =
+        service === 'other'
+          ? {
+              ...SERVICES.other,
+              label: appName(active && (active.process || active.id)) || SERVICES.other.label,
+            }
+          : SERVICES[service]
       const playing = Boolean(active && active.status === 'playing')
       const duration = active && active.duration > 0 ? active.duration : 0
       const rawVolume =
@@ -757,7 +818,7 @@ window.__ModuleLoader__.load({
       }
 
       async function command(action, extra) {
-        if (!active) return
+        if (!canControl(active, action === 'toggle' ? (playing ? 'pause' : 'play') : action)) return
         if (action === 'toggle') patchStatus(playing ? 'paused' : 'playing')
         try {
           await fetch('/music-deck/cmd', {
@@ -770,15 +831,86 @@ window.__ModuleLoader__.load({
         }
       }
 
+      function chooseSource(id) {
+        setPicked(id)
+        try {
+          if (id) localStorage.setItem('music-deck.source', id)
+          else localStorage.removeItem('music-deck.source')
+        } catch {
+          /* storage may be unavailable */
+        }
+      }
+
+      const [copied, setCopied] = React.useState(false)
+
+      // Everything the plugin can see, so a bug report carries the data instead
+      // of a guess.
+      function copyDiagnostics() {
+        const payload = JSON.stringify(
+          {
+            at: new Date().toISOString(),
+            agent: snapshot ? snapshot.agent : null,
+            caps: snapshot ? snapshot.caps || null : null,
+            reason: snapshot ? snapshot.reason || null : null,
+            error: snapshot ? snapshot.error || snapshot.failure || null : null,
+            picked: picked || null,
+            active: active ? active.id : null,
+            sessions: sessions.map((session) => ({
+              id: session.id,
+              process: session.process || '',
+              status: session.status,
+              mediaType: session.mediaType || 'unknown',
+              controls: session.controls || null,
+              title: session.title,
+              artist: session.artist,
+              album: session.album,
+              volume: session.volume,
+              muted: session.muted,
+              duration: session.duration,
+            })),
+          },
+          null,
+          2,
+        )
+        const done = () => {
+          setCopied(true)
+          window.setTimeout(() => setCopied(false), 1600)
+        }
+        const fallback = () => {
+          try {
+            const area = document.createElement('textarea')
+            area.value = payload
+            area.style.position = 'fixed'
+            area.style.opacity = '0'
+            document.body.appendChild(area)
+            area.select()
+            document.execCommand('copy')
+            document.body.removeChild(area)
+            done()
+          } catch {
+            /* clipboard unavailable */
+          }
+        }
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(payload).then(done, fallback)
+            return
+          }
+        } catch {
+          /* fall through */
+        }
+        fallback()
+      }
+
       function cycleSession() {
         if (sessions.length < 2) return
         const index = sessions.findIndex((session) => session.id === active.id)
         const next = sessions[(index + 1) % sessions.length]
-        setPicked(next.id)
+        chooseSource(next.id)
       }
 
       function seek(event) {
-        if (!active || duration <= 0) return
+        if (!canControl(active, 'seek') || duration <= 0) return
         const box = event.currentTarget.getBoundingClientRect()
         const ratioNext = Math.max(0, Math.min(1, (event.clientX - box.left) / box.width))
         command('seek', { position: Math.round(ratioNext * duration) })
@@ -951,7 +1083,7 @@ window.__ModuleLoader__.load({
                 type: 'button',
                 title: playing ? t('pause') : t('play'),
                 'aria-label': playing ? t('pause') : t('play'),
-                disabled: !active,
+                disabled: !canControl(active, playing ? 'pause' : 'play'),
                 onClick: (event) => {
                   event.stopPropagation()
                   command('toggle')
@@ -1028,7 +1160,7 @@ window.__ModuleLoader__.load({
                   type: 'button',
                   title: t('prev'),
                   'aria-label': t('prev'),
-                  disabled: !active,
+                  disabled: !canControl(active, 'prev'),
                   onClick: () => command('prev'),
                 },
                 h(Icon, { glyph: 'prev', size: 14 }),
@@ -1040,7 +1172,7 @@ window.__ModuleLoader__.load({
                   type: 'button',
                   title: playing ? t('pause') : t('play'),
                   'aria-label': playing ? t('pause') : t('play'),
-                  disabled: !active,
+                  disabled: !canControl(active, playing ? 'pause' : 'play'),
                   onClick: () => command('toggle'),
                 },
                 h(Icon, { glyph: playing ? 'pause' : 'play', size: 15 }),
@@ -1052,7 +1184,7 @@ window.__ModuleLoader__.load({
                   type: 'button',
                   title: t('next'),
                   'aria-label': t('next'),
-                  disabled: !active,
+                  disabled: !canControl(active, 'next'),
                   onClick: () => command('next'),
                 },
                 h(Icon, { glyph: 'next', size: 14 }),
@@ -1148,7 +1280,7 @@ window.__ModuleLoader__.load({
           duration > 0
             ? h(
                 'div',
-                { className: 'mdk-progress', onClick: seek, role: 'presentation' },
+                { className: 'mdk-progress', onClick: seek, role: 'presentation', 'aria-disabled': !canControl(active, 'seek'), style: { cursor: canControl(active, 'seek') ? 'pointer' : 'default' } },
                 h('div', { className: 'mdk-track' }, h('div', { className: 'mdk-fill', style: { width: `${ratio * 100}%` } })),
               )
             : null,
@@ -1163,7 +1295,7 @@ window.__ModuleLoader__.load({
                 type: 'button',
                 title: t('prev'),
                 'aria-label': t('prev'),
-                disabled: !active,
+                disabled: !canControl(active, 'prev'),
                 onClick: () => command('prev'),
               },
               h(Icon, { glyph: 'prev' }),
@@ -1175,7 +1307,7 @@ window.__ModuleLoader__.load({
                 type: 'button',
                 title: playing ? t('pause') : t('play'),
                 'aria-label': playing ? t('pause') : t('play'),
-                disabled: !active,
+                disabled: !canControl(active, playing ? 'pause' : 'play'),
                 onClick: () => command('toggle'),
               },
               h(Icon, { glyph: playing ? 'pause' : 'play', size: 17 }),
@@ -1187,7 +1319,7 @@ window.__ModuleLoader__.load({
                 type: 'button',
                 title: t('next'),
                 'aria-label': t('next'),
-                disabled: !active,
+                disabled: !canControl(active, 'next'),
                 onClick: () => command('next'),
               },
               h(Icon, { glyph: 'next' }),
@@ -1244,6 +1376,10 @@ window.__ModuleLoader__.load({
                 checked: settings.exclusive,
                 onToggle: () => updateSetting('exclusive', !settings.exclusive),
               }),
+              h(SettingButton, {
+                label: copied ? t('diagnosticsCopied') : t('diagnosticsCopy'),
+                onClick: copyDiagnostics,
+              }),
             )
           : null,
 
@@ -1261,7 +1397,7 @@ window.__ModuleLoader__.load({
                     type: 'button',
                     title: muted ? t('unmute') : t('mute'),
                     'aria-label': muted ? t('unmute') : t('mute'),
-                    disabled: !active,
+                    disabled: !active || rawVolume === null,
                     onClick: toggleMute,
                   },
                   h(Icon, { glyph: muted ? 'volume-mute' : 'volume' }),
@@ -1307,6 +1443,8 @@ window.__ModuleLoader__.load({
               settingsOpaque: '卡片不透明',
               settingsCompact: '窗口化时自动缩小',
               settingsExclusive: '切换音源时自动暂停',
+              diagnosticsCopy: '复制诊断信息',
+              diagnosticsCopied: '已复制',
               menuHide: '隐藏卡片',
               restore: '显示播放器',
               agentStale: '媒体会话服务未就绪，正在重试…',
@@ -1343,6 +1481,8 @@ window.__ModuleLoader__.load({
               settingsOpaque: 'Opaque card',
               settingsCompact: 'Shrink when windowed',
               settingsExclusive: 'Pause when switching sources',
+              diagnosticsCopy: 'Copy diagnostics',
+              diagnosticsCopied: 'Copied',
               restore: 'Show player',
               menuHide: 'Hide card',
               agentStale: 'Media session agent is not ready, retrying…',
