@@ -12,10 +12,10 @@
         "zh": "音乐台"
       },
       "description": {
-        "en": "Floating player that reads and controls the system media session of QQ Music, NetEase Cloud Music and Spotify.",
-        "zh": "悬浮播放器，读取 QQ音乐、网易云音乐、Spotify 的系统媒体会话。"
+        "en": "Floating music controls for players that publish Windows system media sessions.",
+        "zh": "悬浮音乐控制卡片，读取并控制支持 Windows 系统媒体会话的播放器。"
       },
-      "icon": "https://raw.githubusercontent.com/Jimmeebingo/dsh-music-deck/main/icon.svg",
+      "icon": "https://raw.githubusercontent.com/Jimmeebingo/dsh-music-deck/main/assets/icon-180.png",
       "homepage": "https://github.com/Jimmeebingo/dsh-music-deck#readme",
       "repository": {
         "url": "https://github.com/Jimmeebingo/dsh-music-deck"
@@ -31,10 +31,12 @@
       },
       "versions": [
         {
-          "version": "1.0.0",
-          "publishTimestamp": 1794482335,
+          "version": "1.0.1",
+          "publishTimestamp": 1794535581,
           "source": {
-            "type": "npm"
+            "type": "git",
+            "url": "https://github.com/Jimmeebingo/dsh-music-deck",
+            "commit": "9f309dd938eaa7cab3c495faad4282948281daa9"
           }
         }
       ]
