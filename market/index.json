@@ -32,11 +32,9 @@
       "versions": [
         {
           "version": "1.0.1",
-          "publishTimestamp": 1794535581,
+          "publishTimestamp": 1794573176,
           "source": {
-            "type": "git",
-            "url": "https://github.com/Jimmeebingo/dsh-music-deck",
-            "commit": "9f309dd938eaa7cab3c495faad4282948281daa9"
+            "type": "npm"
           }
         }
       ]

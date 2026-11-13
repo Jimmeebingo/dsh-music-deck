@@ -10,17 +10,19 @@
 
 ## 发布步骤
 
-当前 GitHub 代码为 1.0.1，npm 为 1.0.0，因此当前索引使用 Git 来源。先提交代码，再从该提交生成索引：
+当前 GitHub 与 npm 版本均为 1.0.1，索引使用 npm 来源。每次发版先提交代码、完成 npm 发布并验证版本可下载，再生成索引：
 
 ```bash
-# 先提交插件代码，并确保该提交会推送到仓库
-node market/build-index.mjs --git # 生成 market/index.json，钉住当前 HEAD
+# 先提交并推送插件代码，再发布对应版本
+npm publish
+npm view dsh-music-deck version dist.tarball --registry=https://registry.npmjs.org/
+node market/build-index.mjs       # 生成 npm 来源的 market/index.json
 git add market/index.json
 git commit -m "chore: market index"
 git push
 ```
 
-Git 来源要求 DSH 宿主可用的 Git。将来发布 npm 新版本并验证可下载后，才可以运行默认的 `node market/build-index.mjs` 改用 `{ "type": "npm" }`，安装走 `dsh-music-deck@<version>`，用户机器不需要 Git。不要用默认模式为尚未发布的 npm 版本生成索引。
+默认的 `node market/build-index.mjs` 生成 `{ "type": "npm" }`，安装走 `dsh-music-deck@<version>`，用户机器不需要 Git。不要用默认模式为尚未发布的 npm 版本生成索引。若只发布 GitHub 代码，可以在提交代码后用 `--git` 钉住当前 HEAD；Git 来源要求 DSH 宿主可用的 Git。
 
 ```json
 {
@@ -31,17 +33,13 @@ Git 来源要求 DSH 宿主可用的 Git。将来发布 npm 新版本并验证�
       "name": "dsh-music-deck",
       "title": { "en": "Music deck", "zh": "音乐台" },
       "icon": "https://raw.githubusercontent.com/Jimmeebingo/dsh-music-deck/main/assets/icon-180.png",
-      "repository": { "url": "https://github.com/<owner>/<repo>" },
+      "repository": { "url": "https://github.com/Jimmeebingo/dsh-music-deck" },
       "metadata": { "keywords": ["music", "now-playing", "smtc", "windows"] },
       "versions": [
         {
           "version": "1.0.1",
           "publishTimestamp": 1794000000,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/<owner>/<repo>",
-            "commit": "<40 位 commit SHA>"
-          }
+          "source": { "type": "npm" }
         }
       ]
     }

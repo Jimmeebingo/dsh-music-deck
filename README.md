@@ -36,32 +36,21 @@ DSH（DeepSeek Harness）的悬浮音乐播放器。它不接任何音乐服务�
 
 ## 安装
 
-本仓库当前版本为 **1.0.1**，npm 的 `dsh-music-deck` 包仍为 **1.0.0**。安装当前版本时，在 DSH 里 **设置 → 插件 → 安装 bundle**，输入 GitHub 地址（需要宿主电脑可用的 Git）：
-
-```
-git+https://github.com/Jimmeebingo/dsh-music-deck.git
-```
-
-也可以将下方市场索引添加到 Discover，由索引安装钉住的代码版本：
-
-```
-https://raw.githubusercontent.com/Jimmeebingo/dsh-music-deck/main/market/index.json
-```
-
-如果需要 npm 上已发布的 1.0.0，输入包名：
+在 DSH 里 **设置 → 插件 → 安装 bundle**，输入包名：
 
 ```
 dsh-music-deck
 ```
 
-安装后刷新页面，右下角出现播放器。
+安装完成后确认版本为 **1.0.1**，启用插件并刷新页面。包名安装不需要本机安装 Git。
 
-其他两种方式：
+其他安装方式：
 
-- **从插件市场**：把 `market/index.json` 的 raw 地址添加到 Discover 后搜索「音乐台」。
-- **从源码**：克隆本仓库，把安装目标指向仓库目录。
+- **GitHub 源码**：安装目标填写 `git+https://github.com/Jimmeebingo/dsh-music-deck.git`，宿主电脑需要 Git。
+- **插件索引**：将 `https://raw.githubusercontent.com/Jimmeebingo/dsh-music-deck/main/market/index.json` 添加到 Discover，然后搜索「音乐台」。
+- **本地开发**：把安装目标指向仓库目录。已有链接安装的开发副本直接更新原目录并重新加载，不要从 npm 覆盖安装。
 
-> 包名安装不需要本机安装 Git。已有链接安装的开发副本请直接更新原目录，不要从 npm 覆盖安装。
+从 npm 安装的旧版本可在支持版本更新的 DSH 插件页面检查新版本；安装来源为 Git 地址或本地路径时，需要按该来源更新。
 
 ## 使用
 
