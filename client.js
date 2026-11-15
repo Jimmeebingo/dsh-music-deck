@@ -116,6 +116,13 @@ window.__ModuleLoader__.load({
       return serviceOf(session && session.id, session && session.process) !== 'other'
     }
 
+    // The deck controls exactly three players. Anything else a machine publishes
+    // (short-video apps, browsers, system sounds) is ignored instead of being
+    // offered as if it were a music source.
+    function visibleSessions(sessions) {
+      return Array.isArray(sessions) ? sessions.filter(isKnownService) : []
+    }
+
     // With several apps publishing a session (a browser tab, a short-video app,
     // a music player) the choice must be predictable: the source the user last
     // chose, then whatever is actually sounding among the players we know.
@@ -801,7 +808,8 @@ window.__ModuleLoader__.load({
         return props.locale.subscribe(() => forceLocale((value) => value + 1))
       }, [props.locale])
 
-      const sessions = (snapshot && Array.isArray(snapshot.sessions)) ? snapshot.sessions : []
+      const allSessions = (snapshot && Array.isArray(snapshot.sessions)) ? snapshot.sessions : []
+      const sessions = visibleSessions(allSessions)
       const active = pickSession(sessions, picked)
 
       const service = serviceOf(active && active.id, active && active.process)
@@ -884,8 +892,12 @@ window.__ModuleLoader__.load({
             error: snapshot ? snapshot.error || snapshot.failure || null : null,
             picked: picked || null,
             active: active ? active.id : null,
-            sessions: sessions.map((session) => ({
+            // Diagnostics stay complete on purpose: support needs to see every
+            // session the agent published, including the ones the deck ignores.
+            sessions: allSessions.map((session) => ({
               id: session.id,
+              label: appName(session.process || session.id),
+              used: isKnownService(session),
               process: session.process || '',
               status: session.status,
               mediaType: session.mediaType || 'unknown',
