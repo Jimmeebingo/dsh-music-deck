@@ -9,8 +9,8 @@ const source = readFileSync(path.join(here, '..', 'client.js'), 'utf8')
 const start = source.indexOf('function serviceOf(')
 const end = source.indexOf('function hueOf(')
 if (start < 0 || end < 0) throw new Error('selection helpers not found in client.js')
-const { serviceOf, appName, pickSession, isKnownService } = new Function(
-  `${source.slice(start, end)}; return { serviceOf, appName, pickSession, isKnownService }`,
+const { serviceOf, appName, pickSession, isKnownService, visibleSessions } = new Function(
+  `${source.slice(start, end)}; return { serviceOf, appName, pickSession, isKnownService, visibleSessions }`,
 )()
 
 const cases = []
@@ -54,6 +54,29 @@ check('only session', pickSession([s('com.ss.android.ugc.aweme', 'paused', true)
 check('empty list', pickSession([], null), null)
 check('vanished pick', pickSession([s('spotify.exe', 'playing', true)], 'gone.exe').id, 'spotify.exe')
 check('known flag', isKnownService(s('QQMusic.exe', 'paused', false)), true)
+
+// Only the three supported players may appear. Everything else a machine
+// publishes is dropped before the deck chooses or lists a source.
+const ids = list => visibleSessions(list).map(item => item.id)
+check(
+  'short-video and browser sessions are hidden',
+  ids([
+    s('com.ss.android.ugc.aweme', 'playing', true),
+    s('bilibili.exe', 'playing', false),
+    s('cloudmusic.exe', 'paused', false),
+    s('QQMusic.exe', 'paused', false),
+    s('Spotify.exe', 'paused', false),
+  ]),
+  ['cloudmusic.exe', 'QQMusic.exe', 'Spotify.exe'],
+)
+check('a only-short-video machine shows no source at all', ids([s('com.ss.android.ugc.aweme', 'playing', true)]), [])
+check('an empty snapshot stays empty', ids([]), [])
+check('netease is kept through its process name', ids([s('com.netease.cloudmusic', 'paused', true, 'cloudmusic')]), ['com.netease.cloudmusic'])
+check(
+  'picking never falls through to a hidden app',
+  pickSession(visibleSessions([s('com.ss.android.ugc.aweme', 'playing', true)]), null),
+  null,
+)
 
 let failed = 0
 for (const item of cases) {
