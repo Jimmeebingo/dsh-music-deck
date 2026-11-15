@@ -7,3 +7,5 @@ Thumbs.db
 *.tgz
 # The cover reader is compiled at runtime into %TEMP%, never committed.
 MDCover.dll
+# Isolated regression fixtures and generated native test binaries.
+test/tmp/

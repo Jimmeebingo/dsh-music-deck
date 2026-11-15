@@ -50,6 +50,10 @@ namespace Windows.Media.Control
     }
     public sealed class GlobalSystemMediaTransportControlsSessionMediaProperties
     {
+        // The agent records these to prove which track a read actually saw.
+        public string Title { get { return "Fake title"; } }
+        public string Artist { get { return "Fake artist"; } }
+        public string AlbumTitle { get { return "Fake album"; } }
         public Windows.Storage.Streams.ReviewThumbnail Thumbnail
         {
             get { return new Windows.Storage.Streams.ReviewThumbnail(); }

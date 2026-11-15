@@ -169,33 +169,17 @@ function Get-State {
   $shown = $rows | Where-Object { $_.isCurrent } | Select-Object -First 1
   if (-not $shown -and $rows.Count -gt 0) { $shown = $rows[0] }
 
-  # One artwork file per track identity, so switching sources keeps its own art.
+  # Artwork that is already on disk is surfaced immediately. Reading a new
+  # thumbnail is a slow WinRT round trip, so it happens *after* this snapshot is
+  # published (see Update-Covers): a track change must never delay the card, and
+  # a thumbnail that is not ready yet is retried instead of being forgotten.
   foreach ($row in $rows) {
     if (-not $row.title) { continue }
     $identity = $row.id + '|' + $row.title + '|' + $row.artist + '|' + $row.album
     $key = Get-Key $identity
-    $file = Join-Path $Dir "cover-$key.bin"
-    if (Test-Path $file) {
-      $row.coverKey = $key
-      continue
-    }
-    if (-not $coverReader) { continue }
-    try {
-      $bytes = $coverReader::Read($row.id)
-    } catch {
-      $bytes = $null
-    }
-    if ($bytes -and $bytes.Length -gt 0) {
-      [System.IO.File]::WriteAllBytes($file, $bytes)
-      $row.coverKey = $key
-    }
+    if (Test-Path (Join-Path $Dir "cover-$key.bin")) { $row.coverKey = $key }
   }
-
-  # Keep the cache bounded: the twelve most recently written covers are enough.
-  $covers = @(Get-ChildItem $Dir -Filter 'cover-*.bin' -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)
-  if ($covers.Count -gt 12) {
-    $covers | Select-Object -Skip 12 | ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
-  }
+  $script:PendingRows = $rows
 
   $volume = -1
   $muted = $false
@@ -220,6 +204,97 @@ function Get-State {
 
 function Get-Status($session) {
   try { return [string]$session.GetPlaybackInfo().PlaybackStatus } catch { return '' }
+}
+
+# Written to a sibling file and moved into place, so the host can never serve a
+# half-written image while the browser is requesting it.
+function Write-CoverFile([string]$file, [byte[]]$bytes) {
+  $temporary = "$file.$PID.tmp"
+  [System.IO.File]::WriteAllBytes($temporary, $bytes)
+  Move-Item -Force $temporary $file
+}
+
+# Per-track backoff so a player that publishes no artwork is not probed on every
+# tick: the first retry follows a second later, then 2s, 4s, up to 8s. The clock
+# starts when a *failure is observed*, not when the read was requested.
+$coverBackoff = @{}
+$coverDelay = @{}
+$script:coverInFlight = $null
+
+if ($coverReader) {
+  try { $coverReader::Start() } catch { }
+}
+
+function Update-Covers {
+  if (-not $coverReader) { return }
+  $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+
+  # Only failures accumulate here; keep the bookkeeping from growing forever.
+  if ($coverBackoff.Count -gt 200) {
+    $coverBackoff.Clear()
+    $coverDelay.Clear()
+  }
+
+  # 1. Collect a finished read. This never waits for the worker.
+  $token = ''
+  $bytes = $null
+  $error = ''
+  $signature = ''
+  $collected = $false
+  try { $collected = $coverReader::TryTake([ref]$token, [ref]$bytes, [ref]$error, [ref]$signature) } catch { $collected = $false }
+
+  if ($collected) {
+    if ($script:coverInFlight -and $token -eq $script:coverInFlight.key) {
+      $identity = [string]$script:coverInFlight.identity
+      $fresh = ($signature -eq $identity) -and $bytes -and $bytes.Length -gt 0
+      if ($fresh) {
+        try {
+          Write-CoverFile (Join-Path $Dir "cover-$token.bin") $bytes
+          $coverBackoff.Remove($identity)
+          $coverDelay.Remove($identity)
+        } catch { }
+      } else {
+        # Either the read failed, or the player moved to another track while it
+        # ran. Either way the backoff starts from this moment, so a slow read
+        # cannot consume the delay it was meant to enforce.
+        $delay = 1000
+        if ($coverDelay.ContainsKey($identity)) { $delay = [Math]::Min(8000, [int]$coverDelay[$identity] * 2) }
+        $coverDelay[$identity] = $delay
+        $coverBackoff[$identity] = $now + $delay
+      }
+    }
+    $script:coverInFlight = $null
+  } elseif ($script:coverInFlight -and ($now - [int64]$script:coverInFlight.startedAt) -gt 15000) {
+    # The worker never came back; forget the slot so a later tick can retry.
+    $script:coverInFlight = $null
+  }
+
+  # 2. Start at most one new read per tick, and only if none is outstanding.
+  if ($script:coverInFlight) { return }
+
+  $rows = $script:PendingRows
+  if (-not $rows) { return }
+
+  foreach ($row in $rows) {
+    if (-not $row.title) { continue }
+    $identity = $row.id + '|' + $row.title + '|' + $row.artist + '|' + $row.album
+    $key = Get-Key $identity
+    if (Test-Path (Join-Path $Dir "cover-$key.bin")) { continue }
+    if ($coverBackoff.ContainsKey($identity) -and $now -lt [int64]$coverBackoff[$identity]) { continue }
+
+    $accepted = $false
+    try { $accepted = $coverReader::Request($row.id, $key) } catch { $accepted = $false }
+    if ($accepted) {
+      $script:coverInFlight = @{ key = $key; identity = $identity; app = $row.id; startedAt = $now }
+    }
+    break
+  }
+
+  # 3. Keep the cache bounded: the twelve most recently written covers are enough.
+  $covers = @(Get-ChildItem $Dir -Filter 'cover-*.bin' -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)
+  if ($covers.Count -gt 12) {
+    $covers | Select-Object -Skip 12 | ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+  }
 }
 
 # Only card-initiated playback is exclusive: if the user starts two players by
@@ -339,6 +414,11 @@ while ($true) {
       }
       [System.IO.File]::WriteAllText($alive, [string][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(), $utf8)
     }
+
+    # Artwork runs on every tick because it never waits: it collects a finished
+    # read or queues the next one. Cosmetic work must never break state
+    # publication or command handling.
+    try { Update-Covers } catch { }
   } catch {
     $last = ''
     $err = [pscustomobject]@{ ok = $false; error = [string]$_.Exception.Message } | ConvertTo-Json -Compress

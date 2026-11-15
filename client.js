@@ -395,21 +395,50 @@ window.__ModuleLoader__.load({
       const track = props.track
       const meta = props.meta || SERVICES.other
       const key = track && track.coverKey
-      const [broken, setBroken] = React.useState(false)
+      // A cover may be a tick behind the metadata, or a request may land while
+      // the agent is still writing it. Fall back to the gradient at once and
+      // retry in the background, instead of pinning the placeholder until the
+      // track changes or leaving a broken image on screen.
+      const MAX_ATTEMPTS = 3
+      const [attempt, setAttempt] = React.useState(0)
+      const [visible, setVisible] = React.useState(true)
+      const [failed, setFailed] = React.useState(false)
+      const retryTimer = React.useRef(null)
 
       React.useEffect(() => {
-        setBroken(false)
+        setAttempt(0)
+        setVisible(true)
+        setFailed(false)
+        return () => {
+          if (retryTimer.current !== null) {
+            clearTimeout(retryTimer.current)
+            retryTimer.current = null
+          }
+        }
       }, [key])
 
       const className = props.large ? 'mdk-disc mdk-disc-lg' : props.small ? 'mdk-disc mdk-disc-sm' : 'mdk-disc'
 
-      if (key && !broken) {
+      if (key && visible && !failed) {
+        const suffix = attempt === 0 ? '' : `&n=${attempt}`
         return h('img', {
+          key: `${key}-${attempt}`,
           className: `${className} mdk-disc-img`,
-          src: `/music-deck/cover?k=${encodeURIComponent(key)}`,
+          src: `/music-deck/cover?k=${encodeURIComponent(key)}${suffix}`,
           alt: '',
           draggable: false,
-          onError: () => setBroken(true),
+          onError: () => {
+            setVisible(false)
+            if (attempt >= MAX_ATTEMPTS) {
+              setFailed(true)
+              return
+            }
+            retryTimer.current = window.setTimeout(() => {
+              retryTimer.current = null
+              setAttempt((value) => value + 1)
+              setVisible(true)
+            }, 250 * 2 ** attempt)
+          },
         })
       }
       return h('div', { className, style: coverStyle(track) }, meta.badge)

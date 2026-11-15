@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
  *   GET  /music-deck/cover  -> the album art of one track
  */
 
-export const inject = ['webServer']
+export const inject = ['webServer', 'connection']
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const AGENT_SCRIPT = path.join(HERE, 'agent', 'smtc.ps1')
@@ -52,6 +52,16 @@ function sendJson(response, status, payload) {
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(body),
+    'cache-control': 'no-store',
+  })
+  response.end(body)
+}
+
+function sendText(response, status, text) {
+  const body = Buffer.from(text, 'utf8')
+  response.writeHead(status, {
+    'content-type': 'text/plain; charset=utf-8',
+    'content-length': body.length,
     'cache-control': 'no-store',
   })
   response.end(body)
@@ -95,6 +105,45 @@ export function apply(ctx) {
   let stateRequests = 0
   let commandSeq = 0
   let lastCommand = null
+
+  /**
+   * Apply the host's own access policy before anything else happens.
+   *
+   * DSH decides whether the request came from a trusted authority and carried a
+   * live credential; this plugin only obeys that verdict. A missing or broken
+   * check is a hard failure, never an implicit allow.
+   */
+  function rejectRequest(request, response) {
+    let verdict
+    try {
+      const connection = ctx.connection
+      if (!connection || typeof connection.requestRejection !== 'function') {
+        ctx.logger?.warn?.('music-deck: the connection service is unavailable; refusing the request')
+        sendText(response, 500, 'access check unavailable')
+        return true
+      }
+      // Called on the service, so the host keeps its own `this` binding.
+      verdict = connection.requestRejection(request)
+    } catch (error) {
+      ctx.logger?.warn?.(`music-deck: access check failed: ${error.message}`)
+      sendText(response, 500, 'access check failed')
+      return true
+    }
+
+    if (verdict === undefined) return false
+    if (verdict === 401) {
+      sendText(response, 401, 'unauthorized')
+      return true
+    }
+    if (verdict === 403) {
+      sendText(response, 403, 'forbidden')
+      return true
+    }
+    // An unexpected verdict is not a permit: fail closed and make it visible.
+    ctx.logger?.warn?.(`music-deck: unexpected access verdict ${String(verdict)}; refusing the request`)
+    sendText(response, 500, 'access check returned an unknown verdict')
+    return true
+  }
 
   function readState() {
     if (unsupportedWindows) {
@@ -217,6 +266,7 @@ export function apply(ctx) {
         kind: 'exact',
         path: '/music-deck/state',
         handler: (request, response) => {
+          if (rejectRequest(request, response)) return
           if (request.method !== 'GET') {
             response.writeHead(405, { allow: 'GET' })
             response.end()
@@ -235,6 +285,7 @@ export function apply(ctx) {
         kind: 'exact',
         path: '/music-deck/cover',
         handler: (request, response) => {
+          if (rejectRequest(request, response)) return
           if (request.method !== 'GET') {
             response.writeHead(405, { allow: 'GET' })
             response.end()
@@ -248,7 +299,7 @@ export function apply(ctx) {
             key = ''
           }
           if (!/^[a-f0-9]{12}$/.test(key)) {
-            response.writeHead(400)
+            response.writeHead(400, { 'cache-control': 'no-store' })
             response.end()
             return
           }
@@ -257,7 +308,9 @@ export function apply(ctx) {
           try {
             bytes = fs.readFileSync(path.join(workDir, `cover-${key}.bin`))
           } catch {
-            response.writeHead(404)
+            // A cover that does not exist yet may appear moments later; never let
+            // a proxy or the browser remember the miss.
+            response.writeHead(404, { 'cache-control': 'no-store' })
             response.end()
             return
           }
@@ -265,7 +318,7 @@ export function apply(ctx) {
             'content-type': imageType(bytes),
             'content-length': bytes.length,
             // The key is the content hash of the track, so one key never changes.
-            'cache-control': 'public, max-age=604800, immutable',
+            'cache-control': 'private, max-age=604800, immutable',
           })
           response.end(bytes)
         },
@@ -279,6 +332,7 @@ export function apply(ctx) {
         kind: 'exact',
         path: '/music-deck/cmd',
         handler: async (request, response) => {
+          if (rejectRequest(request, response)) return
           if (request.method !== 'POST') {
             response.writeHead(405, { allow: 'POST' })
             response.end()
