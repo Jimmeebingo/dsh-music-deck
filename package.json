@@ -1,6 +1,6 @@
 {
   "name": "dsh-music-deck",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Floating music controls for players that publish Windows system media sessions.",
   "repository": {
     "type": "git",

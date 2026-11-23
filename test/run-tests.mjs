@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const run = (file, args) => execFileSync(file, args, { cwd: root, stdio: 'inherit' })
 run(process.execPath, [path.join(root, 'test/selection.test.mjs')])
+run(process.execPath, [path.join(root, 'test/right-panel.test.mjs')])
 run(process.execPath, [path.join(root, 'test/media-type.test.mjs'), root])
 run(process.execPath, [path.join(root, 'test/capabilities.test.mjs'), root])
 run(process.execPath, [path.join(root, 'test/host-boundaries.test.mjs'), root])

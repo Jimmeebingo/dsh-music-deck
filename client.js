@@ -312,6 +312,54 @@ window.__ModuleLoader__.load({
       return viewport.width < COMPACT_BREAKPOINT || viewport.width < screenWidth * 0.86
     }
 
+    // A panel on the right (the file viewer, an inspector) does not change the
+    // window width, it squeezes the text column — which then slides under the
+    // card. Shrinking the deck keeps it clear of the text, so any panel that
+    // takes real room from the right edge is enough.
+    const RIGHT_PANEL_MIN = 160
+    const PANEL_SCAN_DEPTH = 5
+    const PANEL_SCAN_LIMIT = 4000
+
+    /**
+     * Width of the right panel from measured boxes; 0 when none is open.
+     * Pure on purpose: the geometry is testable without a DOM.
+     */
+    function rightPanelInset(boxes, viewport) {
+      let edge = viewport.width
+      for (const box of boxes) {
+        if (!box) continue
+        // A panel is tall, flush with the right edge and clearly narrower than
+        // the page; that rules out the shell root, page chrome and the card.
+        if (box.height < viewport.height * 0.5) continue
+        if (box.width < RIGHT_PANEL_MIN || box.width > viewport.width * 0.5) continue
+        if (box.right < viewport.width - 12) continue
+        if (box.left <= 0) continue
+        if (box.left < edge) edge = box.left
+      }
+      const inset = viewport.width - edge
+      return inset >= RIGHT_PANEL_MIN && inset <= viewport.width * 0.5 ? Math.round(inset) : 0
+    }
+
+    /** Read that panel off the live page; the deck's own node is never a panel. */
+    function measureRightPanelInset(viewport, ownRoot) {
+      if (!document.body) return 0
+      const boxes = []
+      const queue = []
+      for (const child of document.body.children) queue.push([child, 0])
+      let visited = 0
+      while (queue.length > 0 && visited < PANEL_SCAN_LIMIT) {
+        const [element, depth] = queue.pop()
+        if (!element || depth > PANEL_SCAN_DEPTH) continue
+        visited += 1
+        if (element === ownRoot) continue
+        // An ancestor of the deck is skipped as a reading, never as a branch:
+        // the panel can live beside the overlay host that contains the card.
+        if (!ownRoot || !element.contains(ownRoot)) boxes.push(element.getBoundingClientRect())
+        for (const child of element.children) queue.push([child, depth + 1])
+      }
+      return rightPanelInset(boxes, viewport)
+    }
+
     function Icon(props) {
       const common = {
         width: props.size || 15,
@@ -605,6 +653,8 @@ window.__ModuleLoader__.load({
       const [leftInset, setLeftInset] = React.useState(() =>
         leftInsetFor({ width: window.innerWidth, height: window.innerHeight }),
       )
+      // Width of a right-side panel (file viewer); 0 when the column is free.
+      const [rightInset, setRightInset] = React.useState(0)
       const [size, setSize] = React.useState(() =>
         expanded
           ? isCompactViewport(viewport)
@@ -771,6 +821,28 @@ window.__ModuleLoader__.load({
         }, 2000)
         return () => clearInterval(id)
       }, [activePlacement.side])
+
+      // A right-side panel opens and closes without a window resize, so the deck
+      // reads it on a short interval while it is on screen and can still shrink.
+      React.useEffect(() => {
+        if (!settings.autoCompact || !expanded || hidden) {
+          setRightInset(0)
+          return undefined
+        }
+        const read = () => {
+          const next = measureRightPanelInset(
+            { width: window.innerWidth, height: window.innerHeight },
+            rootRef.current,
+          )
+          // Same width means the same layout: React bails out and nothing re-renders.
+          setRightInset(next)
+        }
+        read()
+        const id = setInterval(() => {
+          if (!document.hidden) read()
+        }, 500)
+        return () => clearInterval(id)
+      }, [settings.autoCompact, expanded, hidden])
 
       const resolved = dragPos || resolvePlacement(activePlacement, size, viewport, leftInset)
       const rootProps = {
@@ -1137,7 +1209,9 @@ window.__ModuleLoader__.load({
         )
       }
 
-      const compact = settings.autoCompact && isCompactViewport(viewport)
+      // Windowed, or a right panel squeezing the text column: either way the deck
+      // takes the compact shape so it does not sit on the text behind it.
+      const compact = settings.autoCompact && (isCompactViewport(viewport) || rightInset > 0)
 
       if (compact) {
         // Windowed layout: the source sits on its own row, artwork and transport below.
@@ -1482,7 +1556,7 @@ window.__ModuleLoader__.load({
               unmute: '取消静音',
               noSettings: '暂无设置项',
               settingsOpaque: '卡片不透明',
-              settingsCompact: '窗口化时自动缩小',
+              settingsCompact: '窗口化或侧栏打开时自动缩小',
               settingsExclusive: '切换音源时自动暂停',
               diagnosticsCopy: '复制诊断信息',
               diagnosticsCopied: '已复制',
@@ -1520,7 +1594,7 @@ window.__ModuleLoader__.load({
               unmute: 'Unmute',
               noSettings: 'No settings yet',
               settingsOpaque: 'Opaque card',
-              settingsCompact: 'Shrink when windowed',
+              settingsCompact: 'Shrink when windowed or panel open',
               settingsExclusive: 'Pause when switching sources',
               diagnosticsCopy: 'Copy diagnostics',
               diagnosticsCopied: 'Copied',
