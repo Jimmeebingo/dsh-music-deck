@@ -340,10 +340,13 @@ window.__ModuleLoader__.load({
       return inset >= RIGHT_PANEL_MIN && inset <= viewport.width * 0.5 ? Math.round(inset) : 0
     }
 
-    /** Read that panel off the live page; the deck's own node is never a panel. */
-    function measureRightPanelInset(viewport, ownRoot) {
-      if (!document.body) return 0
-      const boxes = []
+    /**
+     * Every box hugging the right edge, for measuring and for support: the
+     * diagnostics report what the thresholds rejected, not only what passed.
+     */
+    function scanRightSide(viewport, ownRoot) {
+      const found = []
+      if (!document.body) return found
       const queue = []
       for (const child of document.body.children) queue.push([child, 0])
       let visited = 0
@@ -354,9 +357,25 @@ window.__ModuleLoader__.load({
         if (element === ownRoot) continue
         // An ancestor of the deck is skipped as a reading, never as a branch:
         // the panel can live beside the overlay host that contains the card.
-        if (!ownRoot || !element.contains(ownRoot)) boxes.push(element.getBoundingClientRect())
+        if (!ownRoot || !element.contains(ownRoot)) {
+          const rect = element.getBoundingClientRect()
+          if (rect.width > 0 && rect.height > 0 && rect.right >= viewport.width - 160) {
+            found.push({
+              depth,
+              rect,
+              tag: String(element.tagName || ''),
+              cls: String(element.className || '').slice(0, 40),
+            })
+          }
+        }
         for (const child of element.children) queue.push([child, depth + 1])
       }
+      return found
+    }
+
+    /** Read that panel off the live page; the deck's own node is never a panel. */
+    function measureRightPanelInset(viewport, ownRoot) {
+      const boxes = scanRightSide(viewport, ownRoot).map((item) => item.rect)
       return rightPanelInset(boxes, viewport)
     }
 
@@ -964,6 +983,27 @@ window.__ModuleLoader__.load({
             error: snapshot ? snapshot.error || snapshot.failure || null : null,
             picked: picked || null,
             active: active ? active.id : null,
+            // What the deck actually measured for the right side: a "card did not
+            // shrink" report then carries the geometry instead of a guess.
+            layout: {
+              viewport: [window.innerWidth, window.innerHeight],
+              rightInset,
+              rightSide: scanRightSide(
+                { width: window.innerWidth, height: window.innerHeight },
+                rootRef.current,
+              )
+                .sort((a, b) => a.depth - b.depth)
+                .slice(0, 8)
+                .map((item) => ({
+                  depth: item.depth,
+                  tag: item.tag,
+                  cls: item.cls,
+                  left: Math.round(item.rect.left),
+                  right: Math.round(item.rect.right),
+                  width: Math.round(item.rect.width),
+                  height: Math.round(item.rect.height),
+                })),
+            },
             // Diagnostics stay complete on purpose: support needs to see every
             // session the agent published, including the ones the deck ignores.
             sessions: allSessions.map((session) => ({

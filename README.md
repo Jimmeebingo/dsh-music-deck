@@ -161,8 +161,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File agent\sessions.ps1
 
 ## 开发
 
-- 改 `client.js`、`locale/`：刷新页面即可生效。
-- 改 `index.js`、`agent/`：需要在 DSH 插件列表里禁用再启用，重启代理进程。
+- 改 `client.js`、`locale/`：**必须重装一次 bundle**，再硬刷新页面。客户端代码是安装时构建的产物，
+  只刷新页面拿到的是上一份构建，源码改动不会生效。
+- 改 `index.js`、`agent/`：同样需要重装，重启宿主半边与媒体代理进程。
 - 改 `cordis.patch.yml` 或 `package.json` 的 `name`：需要重新安装 bundle。
 - 发版：改 `package.json` 的 `version`，提交推送后跑 `node market/build-index.mjs`，再提交 `market/index.json`。
 - 测试：`npm test`；包含来源选择与接口边界测试，Windows 上还运行 PowerShell 5.1 / COM 回归测试。非 Windows 平台跳过原生测试。
